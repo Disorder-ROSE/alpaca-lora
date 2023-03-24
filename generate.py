@@ -1,4 +1,3 @@
-import sys
 import torch
 from peft import PeftModel
 import transformers
@@ -9,15 +8,11 @@ assert (
 ), "LLaMA is now in HuggingFace's main branch.\nPlease reinstall it: pip uninstall transformers && pip install git+https://github.com/huggingface/transformers.git"
 from transformers import LlamaTokenizer, LlamaForCausalLM, GenerationConfig
 
-LOAD_8BIT = False
-BASE_MODEL = None
-LORA_WEIGHTS = "tloen/alpaca-lora-7b"
+tokenizer = LlamaTokenizer.from_pretrained("decapoda-research/llama-7b-hf")
 
-tokenizer = LlamaTokenizer.from_pretrained(BASE_MODEL)
-
-assert (
-    BASE_MODEL
-), "Please specify a BASE_MODEL in the script, e.g. 'decapoda-research/llama-7b-hf'"
+BASE_MODEL = "decapoda-research/llama-7b-hf"
+LORA_WEIGHTS = "/content/alpaca-lora/lora-alpaca"
+# LORA_WEIGHTS = "tloen/alpaca-lora-7b"
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -33,15 +28,11 @@ except:
 if device == "cuda":
     model = LlamaForCausalLM.from_pretrained(
         BASE_MODEL,
-        load_in_8bit=LOAD_8BIT,
+        load_in_8bit=True,
         torch_dtype=torch.float16,
         device_map="auto",
     )
-    model = PeftModel.from_pretrained(
-        model,
-        LORA_WEIGHTS,
-        torch_dtype=torch.float16,
-    )
+    model = PeftModel.from_pretrained(model, LORA_WEIGHTS, torch_dtype=torch.float16)
 elif device == "mps":
     model = LlamaForCausalLM.from_pretrained(
         BASE_MODEL,
@@ -64,11 +55,6 @@ else:
         device_map={"": device},
     )
 
-# unwind broken decapoda-research config
-model.config.pad_token_id = tokenizer.pad_token_id = 0  # unk
-model.config.bos_token_id = 1
-model.config.eos_token_id = 2
-
 
 def generate_prompt(instruction, input=None):
     if input:
@@ -90,11 +76,8 @@ def generate_prompt(instruction, input=None):
 ### Response:"""
 
 
-if not LOAD_8BIT:
-    model.half()  # seems to fix bugs for some users.
-
 model.eval()
-if torch.__version__ >= "2" and sys.platform != "win32":
+if torch.__version__ >= "2":
     model = torch.compile(model)
 
 
@@ -154,7 +137,7 @@ gr.Interface(
     ],
     title="🦙🌲 Alpaca-LoRA",
     description="Alpaca-LoRA is a 7B-parameter LLaMA model finetuned to follow instructions. It is trained on the [Stanford Alpaca](https://github.com/tatsu-lab/stanford_alpaca) dataset and makes use of the Huggingface LLaMA implementation. For more information, please visit [the project's website](https://github.com/tloen/alpaca-lora).",
-).launch()
+).launch(share=True)
 
 # Old testing code follows.
 
