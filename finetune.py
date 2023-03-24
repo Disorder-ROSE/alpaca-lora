@@ -20,26 +20,22 @@ from peft import (
 
 
 # optimized for RTX 4090. for larger GPUs, increase some of these?
-MICRO_BATCH_SIZE = 4  # this could actually be 5 but i like powers of 2
-BATCH_SIZE = 128
+MICRO_BATCH_SIZE = 2  # this could actually be 5 but i like powers of 2
+BATCH_SIZE = 32
 GRADIENT_ACCUMULATION_STEPS = BATCH_SIZE // MICRO_BATCH_SIZE
-EPOCHS = 3  # we don't always need 3 tbh
+EPOCHS = 1  # we don't always need 3 tbh
 LEARNING_RATE = 3e-4  # the Karpathy constant
 CUTOFF_LEN = 256  # 256 accounts for about 96% of the data
 LORA_R = 8
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
-VAL_SET_SIZE = 2000
+VAL_SET_SIZE = 100
 TARGET_MODULES = [
     "q_proj",
     "v_proj",
 ]
-DATA_PATH = "alpaca_data_cleaned.json"
+DATA_PATH = "/content/alpaca-lora/alpaca_data_kr/alpaca_data_kr.json"
 OUTPUT_DIR = "lora-alpaca"
-BASE_MODEL = None
-assert (
-    BASE_MODEL
-), "Please specify a BASE_MODEL in the script, e.g. 'decapoda-research/llama-7b-hf'"
 
 device_map = "auto"
 world_size = int(os.environ.get("WORLD_SIZE", 1))
@@ -49,11 +45,13 @@ if ddp:
     GRADIENT_ACCUMULATION_STEPS = GRADIENT_ACCUMULATION_STEPS // world_size
 
 model = LlamaForCausalLM.from_pretrained(
-    BASE_MODEL,
+    "decapoda-research/llama-7b-hf",
     load_in_8bit=True,
     device_map=device_map,
 )
-tokenizer = LlamaTokenizer.from_pretrained(BASE_MODEL, add_eos_token=True)
+tokenizer = LlamaTokenizer.from_pretrained(
+    "decapoda-research/llama-7b-hf", add_eos_token=True
+)
 
 model = prepare_model_for_int8_training(model)
 
@@ -73,7 +71,7 @@ data = load_dataset("json", data_files=DATA_PATH)
 def generate_prompt(data_point):
     # sorry about the formatting disaster gotta move fast
     if data_point["input"]:
-        return f"""Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+        return f"""아래는 작업을 설명하는 명령어와 추가 컨텍스트를 제공하는 입력이 짝을 이루는 예제입니다. 요청을 적절히 완료하는 응답을 작성하세요.
 
 ### Instruction:
 {data_point["instruction"]}
@@ -84,7 +82,7 @@ def generate_prompt(data_point):
 ### Response:
 {data_point["output"]}"""
     else:
-        return f"""Below is an instruction that describes a task. Write a response that appropriately completes the request.
+        return f"""아래는 작업을 설명하는 지침입니다. 요청을 적절하게 완료하는 응답을 작성합니다.
 
 ### Instruction:
 {data_point["instruction"]}
@@ -109,8 +107,55 @@ def tokenize(prompt):
 
 
 def generate_and_tokenize_prompt(data_point):
-    prompt = generate_prompt(data_point)
-    return tokenize(prompt)
+    # This function masks out the labels for the input,
+    # so that our loss is computed only on the response.
+    user_prompt = (
+        (
+            f"""아래는 작업을 설명하는 명령어와 추가 컨텍스트를 제공하는 입력이 짝을 이루는 예제입니다. 요청을 적절하게 완료하는 응답을 작성합니다.
+
+### Instruction:
+{data_point["instruction"]}
+
+### Input:
+{data_point["input"]}
+
+### Response:
+"""
+        )
+        if data_point["input"]
+        else (
+            f"""아래는 작업을 설명하는 지침입니다. 요청을 적절하게 완료하는 응답을 작성합니다.
+
+### Instruction:
+{data_point["instruction"]}
+
+### Response:
+"""
+        )
+    )
+    len_user_prompt_tokens = (
+        len(
+            tokenizer(
+                user_prompt,
+                truncation=True,
+                max_length=CUTOFF_LEN + 1,
+                padding="max_length",
+            )["input_ids"]
+        )
+        - 1
+    )  # no eos token
+    full_tokens = tokenizer(
+        user_prompt + data_point["output"],
+        truncation=True,
+        max_length=CUTOFF_LEN + 1,
+        padding="max_length",
+    )["input_ids"][:-1]
+    return {
+        "input_ids": full_tokens,
+        "labels": [-100] * len_user_prompt_tokens
+        + full_tokens[len_user_prompt_tokens:],
+        "attention_mask": [1] * (len(full_tokens)),
+    }
 
 
 if VAL_SET_SIZE > 0:
@@ -120,7 +165,7 @@ if VAL_SET_SIZE > 0:
     train_data = train_val["train"].shuffle().map(generate_and_tokenize_prompt)
     val_data = train_val["test"].shuffle().map(generate_and_tokenize_prompt)
 else:
-    train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
+    train_data = data['train'].shuffle().map(generate_and_tokenize_prompt)
     val_data = None
 
 trainer = transformers.Trainer(
@@ -153,7 +198,7 @@ model.state_dict = (
     lambda self, *_, **__: get_peft_model_state_dict(self, old_state_dict())
 ).__get__(model, type(model))
 
-if torch.__version__ >= "2" and sys.platform != "win32":
+if torch.__version__ >= "2" and sys.platform != 'win32':
     model = torch.compile(model)
 
 trainer.train()
