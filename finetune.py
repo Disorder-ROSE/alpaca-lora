@@ -21,7 +21,7 @@ from peft import (
 
 # optimized for RTX 4090. for larger GPUs, increase some of these?
 MICRO_BATCH_SIZE = 2  # this could actually be 5 but i like powers of 2
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 GRADIENT_ACCUMULATION_STEPS = BATCH_SIZE // MICRO_BATCH_SIZE
 EPOCHS = 1  # we don't always need 3 tbh
 LEARNING_RATE = 3e-4  # the Karpathy constant
@@ -34,7 +34,7 @@ TARGET_MODULES = [
     "q_proj",
     "v_proj",
 ]
-DATA_PATH = "/content/alpaca-lora/alpaca_data_kr/alpaca_data_kr.json"
+DATA_PATH = "./alpaca-lora-checkpoint/content/alpaca-lora/alpaca_data_kr/alpaca_data_kr.json"
 OUTPUT_DIR = "lora-alpaca"
 
 device_map = "auto"
