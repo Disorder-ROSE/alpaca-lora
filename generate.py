@@ -11,7 +11,7 @@ from transformers import LlamaTokenizer, LlamaForCausalLM, GenerationConfig
 tokenizer = LlamaTokenizer.from_pretrained("decapoda-research/llama-7b-hf")
 
 BASE_MODEL = "decapoda-research/llama-7b-hf"
-LORA_WEIGHTS = "/content/alpaca-lora/lora-alpaca"
+LORA_WEIGHTS = "./alpaca-lora-checkpoint/content/alpaca-lora/lora-alpaca"
 # LORA_WEIGHTS = "tloen/alpaca-lora-7b"
 
 if torch.cuda.is_available():
